@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Music Player 🎵</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+.container { max-width: 1200px; margin: 0 auto; }
+.header {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+h1 { color: #667eea; margin-bottom: 10px; }
+.stats { color: #666; font-size: 14px; }
+.player-area {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.playlist {
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+  max-height: 600px;
+  overflow-y: auto;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.track {
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+.track:hover { background: #f5f5f5; }
+.track.active {
+  background: #e8eaf6;
+  border-left-color: #667eea;
+}
+.track-title { font-weight: 600; color: #333; margin-bottom: 4px; }
+.track-artist { font-size: 13px; color: #666; }
+.track-person {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #667eea;
+  color: white;
+  margin-top: 4px;
+}
+.video-container {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.video-wrapper {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000;
+}
+.video-wrapper iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+.now-playing {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+.now-playing h3 { color: #667eea; margin-bottom: 5px; font-size: 18px; }
+.now-playing p { color: #666; font-size: 14px; }
+.controls {
+  background: white;
+  padding: 15px 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+}
+button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: #667eea;
+  color: white;
+}
+.btn-primary:hover { background: #5568d3; }
+.btn-secondary {
+  background: #f5f5f5;
+  color: #333;
+}
+.btn-secondary:hover { background: #e0e0e0; }
+@media (max-width: 768px) {
+  .player-area {
+    grid-template-columns: 1fr;
+  }
+  .playlist { max-height: 300px; }
+}
+
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🎵 Company Music Player</h1>
+    <div class="stats" id="stats">Đang tải...</div>
+  </div>
+
+  <div class="player-area">
+    <div class="playlist" id="playlist"></div>
+    
+    <div class="video-container">
+      <div class="video-wrapper" id="video-wrapper">
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:white;">
+          Chọn bài để bắt đầu
+        </div>
+      </div>
+      <div class="now-playing" id="now-playing" style="display:none;">
+        <h3 id="current-title"></h3>
+        <p id="current-artist"></p>
+        <p id="current-person" style="margin-top:8px;"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn-secondary" onclick="prevTrack()">⏮ Trước</button>
+    <button class="btn-primary" onclick="nextTrack()">Tiếp ⏭</button>
+    <button class="btn-secondary" onclick="shuffle()">🔀 Shuffle</button>
+  </div>
+</div>
+
+<script>
+// ============================================
+// 🔧 CẤU HÌNH - Thay link Google Sheet của bạn vào đây
+// ============================================
+const GOOGLE_SHEET_CSV_URL = 'YOUR_GOOGLE_SHEET_CSV_URL_HERE';
+// Ví dụ: 'https://docs.google.com/spreadsheets/d/1ABC.../export?format=csv'
+
+// ============================================
+// 📝 Hướng dẫn lấy link CSV:
+// 1. Mở Google Sheet
+// 2. File → Share → Publish to web
+// 3. Chọn "Comma-separated values (.csv)"
+// 4. Copy link và paste vào GOOGLE_SHEET_CSV_URL ở trên
+// ============================================
+
+
+// State
+let tracks = [];
+let people = [];
+let currentIndex = 0;
+let roundRobinQueue = [];
+
+// Fetch data from Google Sheet
+async function loadDataFromSheet() {
+  try {
+    // Show loading
+    document.getElementById('stats').textContent = '⏳ Đang tải dữ liệu từ Google Sheet...';
+    
+    // Use CORS proxy to fetch CSV
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(GOOGLE_SHEET_CSV_URL)}`;
+    const response = await fetch(proxyUrl);
+    
+    if (!response.ok) {
+      throw new Error('Không thể tải Google Sheet. Kiểm tra lại link CSV!');
+    }
+    
+    const csvData = await response.text();
+    parseData(csvData);
+    
+  } catch (error) {
+    console.error('Error loading sheet:', error);
+    document.getElementById('stats').innerHTML = `
+      ❌ Lỗi: ${error.message}<br>
+      <small style="color:#999;">Kiểm tra lại GOOGLE_SHEET_CSV_URL trong code</small>
+    `;
+  }
+}
+
+function parseData(csvData) {
+  const lines = csvData.trim().split('\n');
+  const byPerson = {};
+  
+  lines.forEach((line, index) => {
+    // Skip header row
+    if (index === 0 && line.toLowerCase().includes('person')) return;
+    
+    // Parse CSV line (handle commas in quotes)
+    const parts = parseCSVLine(line);
+    if (parts.length < 4) return;
+    
+    const person = parts[0].trim();
+    const title = parts[1].trim();
+    const artist = parts[2].trim();
+    const link = parts[3].trim();
+    
+    if (!person || !title) return;
+    
+    if (!byPerson[person]) {
+      byPerson[person] = [];
+      people.push(person);
+    }
+    
+    byPerson[person].push({ person, title, artist, link });
+  });
+  
+  // Build round-robin queue
+  const maxSongs = Math.max(...people.map(p => byPerson[p].length));
+  
+  for (let round = 0; round < maxSongs; round++) {
+    for (const person of people) {
+      if (byPerson[person][round]) {
+        roundRobinQueue.push({
+          ...byPerson[person][round],
+          round: round + 1
+        });
+      }
+    }
+  }
+  
+  tracks = roundRobinQueue;
+  
+  // Update UI
+  document.getElementById('stats').textContent = 
+    `${people.length} người • ${tracks.length} bài • Round-robin mode`;
+  renderPlaylist();
+  playTrack(0);
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  
+  return result;
+}
+
+function extractVideoId(url) {
+  if (!url) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  
+  // Search YouTube if no direct link
+  return null;
+}
+
+function searchYouTube(query) {
+  // Return search URL
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
+function renderPlaylist() {
+  const playlist = document.getElementById('playlist');
+  playlist.innerHTML = '';
+  
+  let lastRound = null;
+  
+  tracks.forEach((track, index) => {
+    if (track.round !== lastRound) {
+      lastRound = track.round;
+      const roundLabel = document.createElement('div');
+      roundLabel.style.cssText = 'padding:8px 12px;font-size:12px;color:#999;font-weight:600;';
+      roundLabel.textContent = `Round ${track.round}`;
+      playlist.appendChild(roundLabel);
+    }
+    
+    const div = document.createElement('div');
+    div.className = 'track' + (index === currentIndex ? ' active' : '');
+    div.onclick = () => playTrack(index);
+    
+    div.innerHTML = `
+      <div class="track-title">${track.title}</div>
+      <div class="track-artist">${track.artist}</div>
+      <span class="track-person">${track.person}</span>
+    `;
+    
+    playlist.appendChild(div);
+  });
+}
+
+function playTrack(index) {
+  currentIndex = index;
+  const track = tracks[currentIndex];
+  
+  // Update UI
+  renderPlaylist();
+  
+  // Update now playing
+  document.getElementById('now-playing').style.display = 'block';
+  document.getElementById('current-title').textContent = track.title;
+  document.getElementById('current-artist').textContent = track.artist;
+  document.getElementById('current-person').textContent = `🎤 ${track.person} • Round ${track.round}`;
+  
+  // Load video
+  const videoId = extractVideoId(track.link);
+  const wrapper = document.getElementById('video-wrapper');
+  
+  if (videoId) {
+    wrapper.innerHTML = `<iframe 
+      src="https://www.youtube.com/embed/${videoId}?autoplay=1" 
+      frameborder="0" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen>
+    </iframe>`;
+  } else {
+    // Try to search
+    const searchUrl = searchYouTube(`${track.title} ${track.artist}`);
+    wrapper.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:white;text-align:center;padding:20px;">
+        <p style="margin-bottom:15px;">Không tìm thấy link YouTube</p>
+        <a href="${searchUrl}" target="_blank" style="color:#667eea;background:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+          Tìm trên YouTube
+        </a>
+      </div>
+    `;
+    
+    // Auto next after 5s
+    setTimeout(() => nextTrack(), 5000);
+  }
+  
+  // Scroll to active track
+  const activeTrack = document.querySelector('.track.active');
+  if (activeTrack) {
+    activeTrack.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function nextTrack() {
+  currentIndex = (currentIndex + 1) % tracks.length;
+  playTrack(currentIndex);
+}
+
+function prevTrack() {
+  currentIndex = (currentIndex - 1 + tracks.length) % tracks.length;
+  playTrack(currentIndex);
+}
+
+function shuffle() {
+  // Fisher-Yates shuffle
+  for (let i = tracks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+  }
+  currentIndex = 0;
+  renderPlaylist();
+  playTrack(0);
+}
+
+// Initialize - Load from Google Sheet
+loadDataFromSheet();
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') nextTrack();
+  if (e.key === 'ArrowLeft') prevTrack();
+});
+</script>
+</body>
+</html>
+    const j = Math.floor(Math.random() * (i + 1));
+    [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+  }
+  currentIndex = 0;
+  renderPlaylist();
+  playTrack(0);
+}
+
+// Initialize - Load from Google Sheet
+loadDataFromSheet();
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') nextTrack();
+  if (e.key === 'ArrowLeft') prevTrack();
+});
+</script>
+</body>
+</html>
